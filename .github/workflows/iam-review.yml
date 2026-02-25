@@ -67,13 +67,17 @@ jobs:
           script: |
             const comments = JSON.parse(process.env.COMMENTS_JSON);
             for (const comment of comments) {
-              await github.rest.pulls.createReviewComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-                commit_id: context.payload.pull_request.head.sha,
-                path: comment.path,
-                line: comment.line,
-                body: comment.body,
-              });
+              try {
+                await github.rest.pulls.createReviewComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  commit_id: context.payload.pull_request.head.sha,
+                  path: comment.path,
+                  line: comment.line,
+                  body: comment.body,
+                });
+              } catch (err) {
+                core.warning(`Failed to post comment on ${comment.path}:${comment.line} — ${err.message}`);
+              }
             }
