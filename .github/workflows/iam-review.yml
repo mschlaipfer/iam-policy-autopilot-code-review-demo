@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,14 +36,14 @@ jobs:
         run: |
           BASE_ARGS=""
           HEAD_ARGS=""
-          git diff --name-only origin/${{ github.base_ref }}...HEAD | while read f; do
+          while read f; do
             ext="${f##*.}"
             case "$ext" in py|js|ts|go)
               [ -f /tmp/base/"$f" ] && BASE_ARGS="$BASE_ARGS --base-file $f:/tmp/base/$f"
               [ -f /tmp/head/"$f" ] && HEAD_ARGS="$HEAD_ARGS --head-file $f:/tmp/head/$f"
               ;;
             esac
-          done
+          done < <(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           echo "base_args=$BASE_ARGS" >> $GITHUB_OUTPUT
           echo "head_args=$HEAD_ARGS" >> $GITHUB_OUTPUT
 
