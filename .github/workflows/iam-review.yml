@@ -61,9 +61,11 @@ jobs:
 
       - name: Post review comments
         uses: actions/github-script@v7
+        env:
+          COMMENTS_JSON: ${{ steps.iam_review.outputs.comments }}
         with:
           script: |
-            const comments = JSON.parse(`${{ steps.iam_review.outputs.comments }}`);
+            const comments = JSON.parse(process.env.COMMENTS_JSON);
             for (const comment of comments) {
               await github.rest.pulls.createReviewComment({
                 owner: context.repo.owner,
