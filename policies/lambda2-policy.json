@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowS3Read",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+      "Resource": "arn:aws:s3:::raw-events-bucket/*"
+    },
+    {
+      "Sid": "AllowDynamoDBWrite",
+      "Effect": "Allow",
+      "Action": ["dynamodb:BatchWriteItem", "dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:us-east-1:123456789012:table/processed-events"
+    },
+    {
+      "Sid": "AllowSNS",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowKmsConditional",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.us-east-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "DenyLambdaInvoke",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "*"
+    }
+  ]
+}
