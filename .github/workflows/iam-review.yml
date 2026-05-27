@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      contents: read
+    env:
+      GITHUB_BLOB_URL_PREFIX: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -16,13 +19,12 @@ jobs:
 
       - name: Install iam-policy-autopilot
         run: |
-          curl -sSL https://github.com/mschlaipfer/iam-policy-autopilot/releases/download/0.1.4-gh-tool-demo/iam-policy-autopilot-0.1.4-gh-tool-demo-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          curl -sSL https://github.com/mschlaipfer/iam-policy-autopilot/releases/download/0.2.1-gh-tool-demo/iam-policy-autopilot-0.2.1-gh-tool-demo-x86_64-unknown-linux-gnu.tar.gz | tar xz
           sudo mv iam-policy-autopilot /usr/local/bin/
 
       - name: Fetch base and head files
         run: |
           git fetch origin ${{ github.base_ref }}
-          # For each changed .py/.ts/.js/.go file, save base and head versions
           git diff --name-only origin/${{ github.base_ref }}...HEAD | while read f; do
             mkdir -p /tmp/base/$(dirname "$f") /tmp/head/$(dirname "$f")
             git show origin/${{ github.base_ref }}:"$f" > /tmp/base/"$f" 2>/dev/null || true
@@ -30,47 +32,57 @@ jobs:
           done
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr.diff
 
-      - name: Build --base-file and --head-file args
+      - name: Build file args
         id: build_args
+        shell: bash
         run: |
           BASE_ARGS=""
           HEAD_ARGS=""
-          git diff --name-only origin/${{ github.base_ref }}...HEAD | while read f; do
+          while read f; do
             ext="${f##*.}"
             case "$ext" in py|js|ts|go)
               [ -f /tmp/base/"$f" ] && BASE_ARGS="$BASE_ARGS --base-file $f:/tmp/base/$f"
               [ -f /tmp/head/"$f" ] && HEAD_ARGS="$HEAD_ARGS --head-file $f:/tmp/head/$f"
               ;;
             esac
-          done
+          done < <(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           echo "base_args=$BASE_ARGS" >> $GITHUB_OUTPUT
           echo "head_args=$HEAD_ARGS" >> $GITHUB_OUTPUT
 
-      - name: Generate IAM review comments
+      - name: Generate IAM review
         id: iam_review
         run: |
-          COMMENTS=$(iam-policy-autopilot generate-review \
+          REVIEW=$(iam-policy-autopilot generate-review \
             ${{ steps.build_args.outputs.base_args }} \
             ${{ steps.build_args.outputs.head_args }} \
             --diff /tmp/pr.diff \
-            --pretty)
-          echo "comments<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMENTS" >> $GITHUB_OUTPUT
+            --existing-policy policy.json \
+            --policy-path policy.json \
+            --include-tool-link \
+            --suggest-policy-changes)
+          echo "json<<EOF" >> $GITHUB_OUTPUT
+          echo "$REVIEW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post review comments
+      - name: Post review
         uses: actions/github-script@v7
+        env:
+          REVIEW_JSON: ${{ steps.iam_review.outputs.json }}
         with:
           script: |
-            const comments = JSON.parse(`${{ steps.iam_review.outputs.comments }}`);
-            for (const comment of comments) {
-              await github.rest.pulls.createReviewComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-                commit_id: context.payload.pull_request.head.sha,
-                path: comment.path,
-                line: comment.line,
-                body: comment.body,
-              });
-            }
+            const review = JSON.parse(process.env.REVIEW_JSON);
+            if (review.comments.length === 0) return;
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              commit_id: context.payload.pull_request.head.sha,
+              body: review.body,
+              event: 'COMMENT',
+              comments: review.comments.map(c => ({
+                path: c.path,
+                line: c.line,
+                side: c.side,
+                body: c.body,
+              })),
+            });
