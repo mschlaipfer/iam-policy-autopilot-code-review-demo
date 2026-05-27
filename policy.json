@@ -19,7 +19,7 @@
     {
       "Sid": "AllowKmsConditional",
       "Effect": "Allow",
-      "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+      "Action": ["kms:GenerateDataKey"],
       "Resource": "*",
       "Condition": {
         "StringEquals": {
@@ -28,15 +28,15 @@
       }
     },
     {
-      "Sid": "AllowSecretsManager",
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-app/*"
-    },
-    {
       "Sid": "DenyS3Delete",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenySqs",
+      "Effect": "Deny",
+      "Action": "sqs:SendMessage",
       "Resource": "*"
     }
   ]

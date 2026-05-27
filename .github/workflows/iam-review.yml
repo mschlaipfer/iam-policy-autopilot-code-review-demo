@@ -38,6 +38,7 @@ jobs:
         run: |
           BASE_ARGS=""
           HEAD_ARGS=""
+          # Include changed source files
           while read f; do
             ext="${f##*.}"
             case "$ext" in py|js|ts|go)
@@ -46,12 +47,26 @@ jobs:
               ;;
             esac
           done < <(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          # If policy changed but no source files are in the diff,
+          # include all repo source files so regression detection works
+          if [ -z "$HEAD_ARGS" ] && git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "policy.json"; then
+            while read f; do
+              HEAD_ARGS="$HEAD_ARGS --head-file $f:$f"
+              git show origin/${{ github.base_ref }}:"$f" > /tmp/base/"$f" 2>/dev/null && \
+                BASE_ARGS="$BASE_ARGS --base-file $f:/tmp/base/$f"
+            done < <(find . -name '*.py' -o -name '*.js' -o -name '*.ts' -o -name '*.go' | sed 's|^\./||')
+          fi
           echo "base_args=$BASE_ARGS" >> $GITHUB_OUTPUT
           echo "head_args=$HEAD_ARGS" >> $GITHUB_OUTPUT
 
       - name: Generate IAM review
         id: iam_review
+        shell: bash
         run: |
+          BASE_POLICY_ARG=""
+          if [ -f /tmp/base/policy.json ]; then
+            BASE_POLICY_ARG="--base-policy /tmp/base/policy.json"
+          fi
           REVIEW=$(iam-policy-autopilot generate-review \
             ${{ steps.build_args.outputs.base_args }} \
             ${{ steps.build_args.outputs.head_args }} \
@@ -59,7 +74,8 @@ jobs:
             --existing-policy policy.json \
             --policy-path policy.json \
             --include-tool-link \
-            --suggest-policy-changes)
+            --suggest-policy-changes \
+            $BASE_POLICY_ARG)
           echo "json<<EOF" >> $GITHUB_OUTPUT
           echo "$REVIEW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -71,18 +87,21 @@ jobs:
         with:
           script: |
             const review = JSON.parse(process.env.REVIEW_JSON);
-            if (review.comments.length === 0) return;
-            await github.rest.pulls.createReview({
+            if (review.comments.length === 0 && !review.body) return;
+            const params = {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: context.issue.number,
               commit_id: context.payload.pull_request.head.sha,
               body: review.body,
               event: 'COMMENT',
-              comments: review.comments.map(c => ({
+            };
+            if (review.comments.length > 0) {
+              params.comments = review.comments.map(c => ({
                 path: c.path,
                 line: c.line,
                 side: c.side,
                 body: c.body,
-              })),
-            });
+              }));
+            }
+            await github.rest.pulls.createReview(params);
